@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-label="CityTrust mechanic">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0f766e"/></linearGradient>
+    <radialGradient id="r" cx="70%" cy="20%" r="70%"><stop stop-color="white" stop-opacity="0.35"/><stop offset="1" stop-color="white" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="800" height="600" rx="44" fill="url(#g)"/>
+  <rect width="800" height="600" rx="44" fill="url(#r)"/>
+  <g opacity="0.14" stroke="white" stroke-width="2" fill="none">
+    <path d="M80 120h640M80 240h640M80 360h640M80 480h640M160 60v480M320 60v480M480 60v480M640 60v480"/>
+  </g>
+  <circle cx="400" cy="275" r="118" fill="white" opacity="0.18"/>
+  <g transform="translate(300 175) scale(8.3)" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 7l3-3 3 3-3 3M4 20l7-7m2-6l4 4-6 6-4-4 6-6z"/>
+  </g>
+  <text x="400" y="460" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="42" font-weight="700" fill="white" opacity="0.96">CityTrust</text>
+  <text x="400" y="505" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="500" fill="white" opacity="0.82">Verified Service Access</text>
+</svg>
