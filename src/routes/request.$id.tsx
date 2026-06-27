@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { StatusBadge, UrgencyBadge, VerificationBadge } from "@/components/Badges";
-import { ArrowLeft, Star, BadgeCheck, FileCheck2, Clock, Wrench, CheckCircle2, Car, Search, Handshake, MessageCircle, FileDown } from "lucide-react";
+import { ArrowLeft, Star, BadgeCheck, FileCheck2, Clock, Wrench, CheckCircle2, Car, Search, Handshake, MessageCircle, FileDown, Phone } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { artisanAvatar } from "@/lib/images";
 import { SmartImage } from "@/components/SmartImage";
 import { ChatModal } from "@/components/ChatModal";
+import { MessageCenterDialog } from "@/components/MessageCenterDialog";
 import { exportChatTranscriptPdf } from "@/lib/exportChatPdf";
 
 export const Route = createFileRoute("/request/$id")({
@@ -35,6 +36,7 @@ function RequestDetail() {
   const [comment, setComment] = useState("");
   const [complaint, setComplaint] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const [messageCenterOpen, setMessageCenterOpen] = useState(false);
 
 
   if (!r) return (
@@ -43,23 +45,41 @@ function RequestDetail() {
     </div>
   );
   const a = db.artisans.find((x) => x.id === r.artisan_id);
+  const artisanUser = a ? db.users.find((u) => u.id === a.user_id) : undefined;
+  const residentUser = db.users.find((u) => u.id === r.user_id);
+  const isArtisanOwner = Boolean(a && db.authSessions?.artisanUserId === a.user_id);
+  const isResidentOwner = db.authSessions?.residentUserId === r.user_id;
+  const contactPhone = isArtisanOwner ? residentUser?.phone : artisanUser?.phone;
+  const contactLabel = isArtisanOwner ? "Call resident" : "Call artisan";
   const c = db.categories.find((x) => x.id === r.category_id);
   const effective = r.status === "disputed" ? "completed" : r.status;
   const currentIdx = TIMELINE.findIndex((t) => t.s === effective);
+
+  function openRoleAwareMessages() {
+    if (isArtisanOwner) {
+      setMessageCenterOpen(true);
+      return;
+    }
+    if (!isResidentOwner) {
+      toast.error("Please sign in as the resident to message this artisan.");
+      return;
+    }
+    setChatOpen(true);
+  }
 
   function submitReview() {
     if (!a) { toast.error("No artisan assigned"); return; }
     if (r!.status !== "completed" && r!.status !== "reviewed") {
       toast.error("Job must be completed before review"); return;
     }
-    store.addReview({ request_id: r!.id, user_id: db.currentUserId, artisan_id: a.id, rating, comment });
+    store.addReview({ request_id: r!.id, user_id: r!.user_id, artisan_id: a.id, rating, comment });
     toast.success("Verified review submitted");
     setComment("");
   }
   function submitComplaint() {
     if (!a) { toast.error("No artisan assigned"); return; }
     if (!complaint.trim()) { toast.error("Describe the issue"); return; }
-    store.addComplaint({ request_id: r!.id, user_id: db.currentUserId, artisan_id: a.id, complaint_text: complaint });
+    store.addComplaint({ request_id: r!.id, user_id: r!.user_id, artisan_id: a.id, complaint_text: complaint });
     toast.success("Complaint filed");
     setComplaint("");
   }
@@ -108,24 +128,42 @@ function RequestDetail() {
 
         {/* Matched artisan */}
         <div className="rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Matched artisan</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{isArtisanOwner ? "Resident request contact" : "Matched artisan"}</h2>
           {a ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <SmartImage src={artisanAvatar(a.id)} alt={a.business_name} variant="avatar" className="h-12 w-12 rounded-full object-cover ring-2 ring-primary/20" />
+                {isArtisanOwner ? (
+                  <div className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-sm font-black text-primary ring-2 ring-primary/20">
+                    {(residentUser?.full_name ?? "Resident").split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+                  </div>
+                ) : (
+                  <SmartImage src={a.profile_image || artisanAvatar(a.id)} alt={a.business_name} variant="avatar" className="h-12 w-12 rounded-full object-cover ring-2 ring-primary/20" />
+                )}
                 <div>
-                  <div className="font-semibold">{a.business_name}</div>
+                  <div className="font-semibold">{isArtisanOwner ? (residentUser?.full_name ?? "Resident") : a.business_name}</div>
                   <div className="mt-1 flex flex-wrap gap-2">
-                    <VerificationBadge status={a.verification_status} />
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs">★ {a.rating.toFixed(1)}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{a.location_zone}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs">~{a.response_time_mins} min reply</span>
+                    {isArtisanOwner ? (
+                      <>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs">Resident</span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{r.location_zone}</span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize">{r.urgency}</span>
+                      </>
+                    ) : (
+                      <>
+                        <VerificationBadge status={a.verification_status} />
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs">★ {a.rating.toFixed(1)}</span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{a.location_zone}</span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs">~{a.response_time_mins} min reply</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => setChatOpen(true)}><MessageCircle className="mr-1 h-4 w-4" />Message</Button>
-                <Button asChild variant="outline"><Link to="/artisan/$id" params={{ id: a.id }}>View profile</Link></Button>
+                <Button variant="outline" onClick={openRoleAwareMessages}><MessageCircle className="mr-1 h-4 w-4" />{isArtisanOwner ? "Open inbox" : "Message"}</Button>
+                {contactPhone && <Button asChild variant="outline"><a href={`tel:${contactPhone.replace(/[^+\d]/g, "")}`}><Phone className="mr-1 h-4 w-4" />{contactLabel}</a></Button>}
+                {!isArtisanOwner && <Button asChild variant="outline"><Link to="/artisan/$id" params={{ id: a.id }}>View profile</Link></Button>}
+                {isArtisanOwner && <Button asChild variant="outline"><Link to="/artisan">Back to workspace</Link></Button>}
               </div>
             </div>
           ) : <p className="mt-2 text-sm text-muted-foreground">No artisan assigned yet.</p>}
@@ -133,7 +171,7 @@ function RequestDetail() {
 
         {/* Last messages preview */}
         {a && (() => {
-          const thread = db.messages.filter((m) => m.artisan_id === a.id && m.resident_id === db.currentUserId);
+          const thread = db.messages.filter((m) => m.artisan_id === a.id && m.resident_id === r.user_id);
           const last = thread.slice(-3);
           return (
             <div className="rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
@@ -144,7 +182,7 @@ function RequestDetail() {
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">Last {last.length} of {thread.length}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setChatOpen(true)}><MessageCircle className="mr-1 h-4 w-4" />Open chat</Button>
+                  <Button size="sm" variant="outline" onClick={openRoleAwareMessages}><MessageCircle className="mr-1 h-4 w-4" />{isArtisanOwner ? "Open inbox" : "Open chat"}</Button>
                   <Button size="sm" variant="outline" disabled={thread.length === 0} onClick={() => { exportChatTranscriptPdf(a, thread); toast.success("Chat transcript exported"); }}>
                     <FileDown className="mr-1 h-4 w-4" />Export PDF
                   </Button>
@@ -162,7 +200,8 @@ function RequestDetail() {
                           <span className={`text-[10px] font-semibold uppercase tracking-wide ${isResident ? "text-primary" : "text-success"}`}>{isResident ? "Resident" : "Artisan"}</span>
                           <span className="text-[10px] text-muted-foreground">{new Date(m.created_at).toLocaleString()}</span>
                         </div>
-                        <p className="mt-1 text-foreground">{m.text}</p>
+                        {m.image_url && <img src={m.image_url} alt="Shared attachment" className="mt-2 max-h-40 rounded-lg object-cover" />}
+                        {m.text && m.text !== "Photo attached" && <p className="mt-1 text-foreground">{m.text}</p>}
                       </li>
                     );
                   })}
@@ -197,20 +236,24 @@ function RequestDetail() {
               <KV label="Materials needed" value={r.scope.materials} />
               <KV label="Urgency" value={r.urgency} />
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {r.scope.status !== "agreed" && (
-                <Button size="sm" onClick={() => { store.setScopeAgreement(r.id, "agreed"); toast.success("Scope agreement confirmed"); }}>Confirm Scope Agreement</Button>
-              )}
-              {r.scope.status !== "declined" && (
-                <Button size="sm" variant="outline" onClick={() => { store.setScopeAgreement(r.id, "declined"); toast("Scope declined"); }}>Decline</Button>
-              )}
-              <Button size="sm" variant="outline" onClick={() => { store.requestScopeUpdate(r.id); toast("Update requested — awaiting artisan"); }}>Request Update</Button>
-            </div>
+            {isResidentOwner ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {r.scope.status !== "agreed" && (
+                  <Button size="sm" onClick={() => { store.setScopeAgreement(r.id, "agreed"); toast.success("Scope agreement confirmed"); }}>Confirm Scope Agreement</Button>
+                )}
+                {r.scope.status !== "declined" && (
+                  <Button size="sm" variant="outline" onClick={() => { store.setScopeAgreement(r.id, "declined"); toast("Scope declined"); }}>Decline</Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => { store.requestScopeUpdate(r.id); toast("Update requested — awaiting artisan"); }}>Request Update</Button>
+              </div>
+            ) : (
+              <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Scope agreement is shown for transparency. Only the resident can confirm or decline it.</p>
+            )}
           </div>
         )}
 
         {/* Job status controls */}
-        {a && (
+        {a && isArtisanOwner && (
           <div className="rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Update job status</h2>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -222,7 +265,7 @@ function RequestDetail() {
         )}
 
         {/* Review & complaint */}
-        {a && (r.status === "completed" || r.status === "reviewed" || r.status === "disputed") && (
+        {a && isResidentOwner && (r.status === "completed" || r.status === "reviewed" || r.status === "disputed") && (
           <div className="grid gap-6 md:grid-cols-2">
             <div className="rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
               <h3 className="font-semibold">Leave a verified review</h3>
@@ -251,7 +294,8 @@ function RequestDetail() {
           </div>
         )}
       </main>
-      {a && <ChatModal artisan={a} open={chatOpen} onOpenChange={setChatOpen} />}
+      {a && !isArtisanOwner && <ChatModal artisan={a} open={chatOpen} onOpenChange={setChatOpen} />}
+      {a && isArtisanOwner && <MessageCenterDialog role="artisan" artisanId={a.id} open={messageCenterOpen} onOpenChange={setMessageCenterOpen} />}
     </div>
   );
 }

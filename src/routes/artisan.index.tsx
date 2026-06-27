@@ -28,6 +28,40 @@ export const Route = createFileRoute("/artisan/")({
 
 type ArtisanSection = "dashboard" | "requests" | "active" | "verification" | "profile" | "portfolio" | "settings";
 
+function resizeProfileImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Please choose an image file."));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onerror = () => reject(new Error("Could not prepare image preview."));
+      img.onload = () => {
+        const maxSize = 520;
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Could not resize image."));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function ArtisanPortal() {
   const db = useDB();
   const artisanUserId = db.authSessions?.artisanUserId ?? null;
@@ -59,13 +93,14 @@ function ArtisanPortal() {
 function ArtisanPortalContent({ artisanUserId }: { artisanUserId: string }) {
   const db = useDB();
   const currentArtisanUser = db.users.find((u) => u.id === artisanUserId && u.role === "artisan");
-  const fallbackArtisan = db.artisans.find((a) => a.user_id === artisanUserId) ?? db.artisans[0];
-  const artisanUsers = db.users.filter((u) => u.id === artisanUserId || db.artisans.some((a) => a.user_id === u.id && u.role === "artisan"));
-  const [acting, setActing] = useState<string>(currentArtisanUser?.id ?? fallbackArtisan?.user_id ?? artisanUserId);
   const [section, setSection] = useState<ArtisanSection>("dashboard");
   const [messagesOpen, setMessagesOpen] = useState(false);
 
-  const me = db.artisans.find((a) => a.user_id === acting) ?? fallbackArtisan;
+  useEffect(() => {
+    store.ensureArtisanDirectory();
+  }, []);
+
+  const me = db.artisans.find((a) => a.user_id === artisanUserId) ?? null;
   const myJobs = useMemo(() => me ? db.requests.filter((r) => r.artisan_id === me.id) : [], [db.requests, me?.id]);
   const pending = myJobs.filter((r) => ["matched", "pending"].includes(r.status));
   const active = myJobs.filter((r) => ["accepted", "on_the_way", "in_progress"].includes(r.status));
@@ -101,20 +136,10 @@ function ArtisanPortalContent({ artisanUserId }: { artisanUserId: string }) {
               <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">{sectionTitle(section)}</h1>
               <p className="text-sm text-muted-foreground">Manage jobs, verification, resident messages, and service reputation from one portal.</p>
             </div>
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:w-auto">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:whitespace-nowrap">Viewing as</Label>
-              <Select value={acting} onValueChange={setActing}>
-                <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {artisanUsers.map((u) => {
-                    const a = db.artisans.find((a) => a.user_id === u.id);
-                    return <SelectItem key={u.id} value={u.id}>{u.full_name} — {a?.business_name ?? "Artisan"}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-              <Button type="button" variant="outline" className="w-full sm:w-auto lg:hidden" onClick={() => { store.logout("artisan"); window.location.replace("/artisan-account"); }}>
-                <LogOut className="mr-1 h-4 w-4" /> Logout
-              </Button>
+            <div className="flex w-full flex-col gap-1 rounded-2xl border border-border bg-background px-4 py-3 text-sm shadow-sm sm:w-auto">
+              <span className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">Signed in artisan</span>
+              <span className="font-bold text-foreground">{me?.business_name ?? currentArtisanUser?.full_name ?? "Artisan Workspace"}</span>
+              <span className="text-xs text-muted-foreground">{currentArtisanUser?.email ?? "Professional provider account"}</span>
             </div>
           </div>
 
@@ -122,15 +147,21 @@ function ArtisanPortalContent({ artisanUserId }: { artisanUserId: string }) {
             <div className="rounded-3xl border border-border bg-card p-8 text-center shadow-[var(--shadow-elegant)]">
               <h2 className="text-xl font-bold">Complete artisan onboarding</h2>
               <p className="mt-2 text-sm text-muted-foreground">Create your artisan profile to start receiving requests.</p>
-              <div className="mt-5"><OnboardingWizard onSubmitted={(userId) => setActing(userId)} /></div>
+              <div className="mt-5"><OnboardingWizard onSubmitted={() => store.ensureArtisanDirectory()} /></div>
             </div>
           )}
 
           {me && section === "dashboard" && <ArtisanDashboardOverview me={me} pending={pending} active={active} done={done} db={db} onOpenMessages={() => setMessagesOpen(true)} onSelect={setSection} />}
           {me && section === "requests" && <ArtisanRequestsPage title="Service requests" description="Accept or decline new resident requests assigned to your profile." jobs={pending} db={db} />}
           {me && section === "active" && <ArtisanRequestsPage title="Active jobs" description="Update jobs as work starts, progresses, and completes." jobs={[...active, ...done]} db={db} />}
-          {me && section === "verification" && <VerificationPage me={me} onSubmitted={(userId) => setActing(userId)} />}
-          {me && section === "profile" && <ArtisanProfilePage me={me} db={db} />}
+          {me && section === "verification" && <VerificationPage me={me} onSubmitted={() => store.ensureArtisanDirectory()} />}
+          {me && section === "profile" && (
+  <ArtisanProfilePage
+    me={me}
+    db={db}
+    onSelect={setSection}
+  />
+)}
           {me && section === "portfolio" && <ArtisanPortfolioPage me={me} db={db} />}
           {me && section === "settings" && <ArtisanSettingsPage me={me} db={db} onLogout={() => { store.logout("artisan"); window.location.replace("/artisan-account"); }} />}
         </main>
@@ -206,7 +237,16 @@ function ArtisanDashboardOverview({ me, pending, active, done, db, onOpenMessage
             <h2 className="mt-1 text-2xl font-bold md:text-3xl">{me.business_name}</h2>
             <p className="mt-1 max-w-2xl text-sm opacity-90">Track incoming requests, verify your profile, message residents, and build trust across Redemption City.</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-emerald-700 shadow-sm ring-1 ring-white/70"><BadgeCheck className="h-3.5 w-3.5" /> Verified</span>
+              {me.verification_status === "verified" ? (
+  <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-emerald-700">
+    <BadgeCheck className="h-3.5 w-3.5" />
+    Verified
+  </span>
+) : (
+  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-extrabold text-amber-700">
+    Verification Required
+  </span>
+)}
               <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-950/85 px-3 py-1.5 text-xs font-extrabold text-white shadow-sm ring-1 ring-white/25"><ShieldCheck className="h-3.5 w-3.5 text-teal-200" /> Trust {me.trust_score}</span>
             </div>
           </div>
@@ -253,6 +293,15 @@ function ArtisanJobCard({ request, db }: { request: ServiceRequest; db: any }) {
   const resident = db.users.find((u: any) => u.id === request.user_id);
   const isPending = ["matched", "pending"].includes(request.status);
   const isActive = ["accepted", "on_the_way", "in_progress"].includes(request.status);
+  const artisan =
+  db.artisans.find((a: any) => a.id === request.artisan_id);
+
+const acceptedJobs =
+  db.requests.filter(
+    (r: any) =>
+      r.artisan_id === request.artisan_id &&
+      ["accepted", "on_the_way", "in_progress", "completed", "reviewed", "disputed"].includes(r.status)
+  );
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-background shadow-[var(--shadow-card)]">
       <SmartImage src={categoryImage(request.category_id)} alt={c?.name ?? "Service request"} variant="photo" className="h-36 w-full object-cover" />
@@ -261,7 +310,25 @@ function ArtisanJobCard({ request, db }: { request: ServiceRequest; db: any }) {
         <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">{request.issue_description}</p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs"><UrgencyBadge urgency={request.urgency} /><span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5"><MapPin className="h-3 w-3" />{request.location_zone}</span><span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5"><Clock className="h-3 w-3" />{request.preferred_time}</span></div>
         <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
-          {isPending && <><Button size="sm" onClick={() => { store.updateRequestStatus(request.id, "accepted"); toast.success("Job accepted"); }}>Accept</Button><Button size="sm" variant="outline" onClick={() => toast("Request left pending")}>Decline</Button></>}
+          {isPending && <><Button
+  size="sm"
+  onClick={() => {
+    if (
+      artisan?.verification_status !== "verified" &&
+      acceptedJobs.length >= 1
+    ) {
+      toast.error(
+        "Verification required. Unverified artisans can only accept one customer request."
+      );
+      return;
+    }
+
+    store.updateRequestStatus(request.id, "accepted");
+    toast.success("Job accepted");
+  }}
+>
+  Accept
+</Button><Button size="sm" variant="outline" onClick={() => toast("Request left pending")}>Decline</Button></>}
           {isActive && (request.status === "accepted" ? <Button size="sm" onClick={() => { store.updateRequestStatus(request.id, "in_progress"); toast.success("Marked in progress"); }}>Start work</Button> : <Button size="sm" onClick={() => { store.updateRequestStatus(request.id, "completed"); toast.success("Marked completed"); }}>Complete</Button>)}
           <Button asChild size="sm" variant="outline"><Link to="/request/$id" params={{ id: request.id }}>View timeline</Link></Button>
         </div>
@@ -282,17 +349,48 @@ function VerificationPage({ me, onSubmitted }: any) {
   );
 }
 
-function ArtisanProfilePage({ me, db }: any) {
+function ArtisanProfilePage({ me, db, onSelect }: any) {
   const category = db.categories.find((c: any) => c.id === me.category_id);
   return (
     <section className="rounded-[1.6rem] border border-border bg-card p-5 shadow-[var(--shadow-elegant)]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
+          <Button
+  onClick={() => onSelect("settings")}
+>
+  Edit Profile
+</Button>
           <div className="text-sm text-muted-foreground">Public service profile</div>
+          <SmartImage
+            src={me.profile_image || categoryImage(me.category_id)}
+            alt={me.business_name}
+            variant="avatar"
+            className="mb-4 h-32 w-32 rounded-full border object-cover"
+          />
+          
           <h2 className="text-2xl font-bold">{me.business_name}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{category?.name} · {me.location_zone} · {me.experience_years} years experience</p>
           <p className="mt-4 max-w-2xl text-sm">{me.bio}</p>
-          <div className="mt-4 flex flex-wrap gap-2"><VerificationBadge status={me.verification_status} /><TrustBadge score={me.trust_score} /><span className="rounded-full bg-muted px-2 py-0.5 text-xs">Rating {me.rating.toFixed(1)}</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs">{me.price_range}</span></div>
+          <div className="mt-4 flex flex-wrap gap-2"><VerificationBadge status={me.verification_status} /><TrustBadge score={me.trust_score} /><span className="rounded-full bg-muted px-2 py-0.5 text-xs">Rating {me.rating.toFixed(1)}</span><span className="rounded-full bg-muted px-2 py-0.5 text-xs">{me.price_range}</span></div>{me.verification_status !== "verified" && (
+  <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+    <h3 className="font-semibold text-amber-900">
+      Verification Required
+    </h3>
+
+    <p className="mt-2 text-sm text-amber-800">
+      Unverified artisans can receive only one customer request.
+      Complete verification to unlock unlimited customer access,
+      improve trust score visibility and receive more service matches.
+    </p>
+
+    <button
+      onClick={() => onSelect("verification")}
+      className="mt-3 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600"
+    >
+      Complete Verification
+    </button>
+  </div>
+)}
         </div>
         <Button asChild variant="outline"><Link to="/artisan/$id" params={{ id: me.id }}>View public page</Link></Button>
       </div>
@@ -374,6 +472,9 @@ function ArtisanPortfolioPage({ me, db }: any) {
 
 function ArtisanSettingsPage({ me, db, onLogout }: any) {
   const user = db.users.find((u: any) => u.id === me.user_id);
+  const [profileImage, setProfileImage] = useState(
+  me.profile_image || ""
+);
   const [saved, setSaved] = useState(false);
   const [form, setForm] = useState({
     business_name: me.business_name ?? "",
@@ -395,6 +496,10 @@ function ArtisanSettingsPage({ me, db, onLogout }: any) {
     emergency_contact: me.emergency_contact ?? "",
   });
 
+  useEffect(() => {
+    setProfileImage(me.profile_image || "");
+  }, [me.id, me.profile_image]);
+
   function update(field: keyof typeof form, value: string | boolean) {
     setSaved(false);
     setForm((current) => ({ ...current, [field]: value }));
@@ -410,6 +515,7 @@ function ArtisanSettingsPage({ me, db, onLogout }: any) {
     store.updateArtisan(me.id, {
       business_name: form.business_name,
       category_id: form.category_id,
+      profile_image: profileImage,
       location_zone: form.location_zone,
       price_range: form.price_range,
       availability_status: form.availability_status as any,
@@ -427,6 +533,8 @@ function ArtisanSettingsPage({ me, db, onLogout }: any) {
     toast.success("Artisan settings saved");
     window.setTimeout(() => setSaved(false), 2600);
   }
+  
+
 
   return (
     <div className="ct-animate-fade-up space-y-5">
@@ -495,8 +603,54 @@ function ArtisanSettingsPage({ me, db, onLogout }: any) {
           <div className="space-y-5">
             <div className="rounded-2xl border border-border bg-background p-4">
               <h3 className="font-bold">Profile preview</h3>
+              <div className="mt-4 space-y-3">
+  {profileImage ? (
+    <div className="relative">
+      <img
+        src={profileImage}
+        alt="Profile"
+        className="h-40 w-full rounded-xl object-cover"
+      />
+
+      <Button
+        type="button"
+        variant="destructive"
+        size="sm"
+        className="absolute right-2 top-2"
+        onClick={() => { setProfileImage(""); store.updateArtisan(me.id, { profile_image: "" }); setSaved(false); toast("Profile photo removed"); }}
+      >
+        Delete Photo
+      </Button>
+    </div>
+  ) : (
+    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed">
+      No profile photo
+    </div>
+  )}
+
+  <Input
+    type="file"
+    accept="image/*"
+    onChange={async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+        const imageUrl = await resizeProfileImage(file);
+        setProfileImage(imageUrl);
+        store.updateArtisan(me.id, { profile_image: imageUrl });
+        setSaved(false);
+        toast.success("Profile photo saved to your public profile");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not upload profile photo");
+      } finally {
+        e.currentTarget.value = "";
+      }
+    }}
+  />
+</div>
               <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
-                <SmartImage src={categoryImage(form.category_id)} alt="Service preview" variant="photo" className="h-40 w-full object-cover" />
+                <SmartImage src={profileImage || categoryImage(form.category_id)} alt="Service preview" variant="photo" className="h-40 w-full object-cover" />
                 <div className="p-4">
                   <div className="text-lg font-bold">{form.business_name || me.business_name}</div>
                   <div className="mt-1 text-sm text-muted-foreground">{db.categories.find((c: any) => c.id === form.category_id)?.name} · {form.location_zone}</div>

@@ -48,17 +48,17 @@ export function AccountAccess({ role }: { role: AccountRole }) {
     }
   }, [signedInUserId, target]);
 
-  const [email, setEmail] = useState(isResident ? "amaka@citytrust.io" : "samuel.adeyemi@citytrust.io");
-  const [password, setPassword] = useState("citytrust2026");
-  const [fullName, setFullName] = useState(isResident ? "Amaka Nwosu" : "Samuel Adeyemi");
-  const [phone, setPhone] = useState(isResident ? "+234 800 000 0001" : "+234 800 000 1000");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [zone, setZone] = useState("Phase 2");
 
-  const [businessName, setBusinessName] = useState("Adeyemi Plumbing Works");
+  const [businessName, setBusinessName] = useState("");
   const [categoryId, setCategoryId] = useState(db.categories[0]?.id ?? "c1");
-  const [experienceYears, setExperienceYears] = useState("8");
-  const [priceRange, setPriceRange] = useState("₦5k-₦25k");
-  const [bio, setBio] = useState("Trusted service provider serving residents and facilities across Redemption City.");
+  const [experienceYears, setExperienceYears] = useState("");
+  const [priceRange, setPriceRange] = useState("");
+  const [bio, setBio] = useState("");
 
   function redirectToTarget() {
     if (typeof window !== "undefined") window.location.replace(target);
@@ -74,9 +74,9 @@ export function AccountAccess({ role }: { role: AccountRole }) {
       toast.error("Enter your password.");
       return;
     }
-    const user = store.signIn(email, role);
+    const user = store.signIn(email, role, password);
     if (!user) {
-      toast.error(`No ${role} account found with that email. Create an account to continue.`);
+      toast.error(`No ${role} account found with that email, or the password is incorrect.`);
       setMode("create");
       return;
     }
@@ -90,9 +90,13 @@ export function AccountAccess({ role }: { role: AccountRole }) {
       toast.error("Complete your name, email, and phone number.");
       return;
     }
+    if (password.trim().length < 6) {
+      toast.error("Use a password with at least 6 characters.");
+      return;
+    }
 
     if (isResident) {
-      store.createResident({ full_name: fullName.trim(), email: email.trim(), phone: phone.trim(), location_zone: zone });
+      store.createResident({ full_name: fullName.trim(), email: email.trim(), phone: phone.trim(), password: password.trim(), location_zone: zone });
       toast.success("Resident account created");
       redirectToTarget();
       return;
@@ -107,6 +111,7 @@ export function AccountAccess({ role }: { role: AccountRole }) {
       full_name: fullName.trim(),
       email: email.trim(),
       phone: phone.trim(),
+      password: password.trim(),
       category_id: categoryId,
       business_name: businessName.trim(),
       bio: bio.trim(),
@@ -114,8 +119,8 @@ export function AccountAccess({ role }: { role: AccountRole }) {
       location_zone: zone,
       price_range: priceRange.trim() || "To be agreed",
       uploads: { identity: true, selfie: true, skill_proof: true, portfolio: true },
-      reference: { name: "Reference Contact", phone: "+234 800 000 2000", relationship: "Previous client" },
-      emergency_contact: "+234 800 000 3000",
+      reference: undefined,
+      emergency_contact: "",
     });
     store.setCurrentUser(artisan.user_id);
     toast.success("Artisan account created and submitted for verification");
@@ -173,6 +178,67 @@ export function AccountAccess({ role }: { role: AccountRole }) {
               <h1 className="mt-14 max-w-lg text-[clamp(2.4rem,5vw,3.9rem)] font-black leading-[0.98] tracking-[-0.045em] text-white">{title}</h1>
               <p className="mt-5 max-w-xl text-sm leading-7 text-white/90 md:text-base">{subtitle}</p>
             </div>
+<div className="mt-6 flex flex-wrap gap-3">
+  <button
+    type="button"
+    onClick={() =>
+      document.getElementById("account-form")?.scrollIntoView({
+        behavior: "smooth",
+      })
+    }
+    className="
+rounded-xl
+bg-gradient-to-r
+from-cyan-500
+to-teal-500
+px-6
+py-3
+text-sm
+font-bold
+text-white
+shadow-lg
+transition-all
+duration-300
+hover:-translate-y-1
+hover:shadow-2xl
+hover:from-cyan-600
+hover:to-teal-600
+active:scale-95
+"
+  >
+    Get Started
+  </button>
+
+  <button
+    type="button"
+    onClick={() => {
+      setMode("signin");
+      setTimeout(() => {
+        document.getElementById("account-form")?.scrollIntoView({
+          behavior: "smooth",
+        });
+      }, 100);
+    }}
+    className="rounded-xl border border-white/40 px-5 py-3 text-sm font-bold text-white"
+  >
+    Sign In
+  </button>
+
+  <button
+    type="button"
+    onClick={() => {
+      setMode("create");
+      setTimeout(() => {
+        document.getElementById("account-form")?.scrollIntoView({
+          behavior: "smooth",
+        });
+      }, 100);
+    }}
+    className="rounded-xl border border-white/40 px-5 py-3 text-sm font-bold text-white"
+  >
+    Create Account
+  </button>
+</div>
 
             <div className="mt-10 grid gap-3">
               {featureCards.map(({ Icon, title, text }) => (
@@ -195,7 +261,27 @@ export function AccountAccess({ role }: { role: AccountRole }) {
           </div>
         </section>
 
-        <section className="rounded-[2rem] border border-border bg-card p-5 shadow-[0_34px_120px_-60px_oklch(0.3_0.13_220/.55)] md:p-7 ct-animate-fade-up ct-delay-2">
+        <section
+  id="account-form"
+  className="rounded-[2rem]  border border-border bg-card p-5 shadow-[0_34px_120px_-60px_oklch(0.3_0.13_220/.55)] md:p-7 ct-animate-fade-up ct-delay-2">
+          <div className="mb-4">
+            <div className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Choose your access type</div>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-border bg-background p-1">
+              <Link
+                to="/resident-account"
+                className={`rounded-xl px-4 py-3 text-center text-sm font-bold transition ${isResident ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                Resident
+              </Link>
+              <Link
+                to="/artisan-account"
+                className={`rounded-xl px-4 py-3 text-center text-sm font-bold transition ${!isResident ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                Artisan
+              </Link>
+            </div>
+          </div>
+
           <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl bg-muted p-1">
             <button
               type="button"
@@ -255,6 +341,15 @@ export function AccountAccess({ role }: { role: AccountRole }) {
                 <div className="space-y-2">
                   <Label>Email address</Label>
                   <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="h-12 rounded-xl" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Password</Label>
+                  <div className="relative">
+                    <Input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} className="h-12 rounded-xl pr-12" />
+                    <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Location zone</Label>

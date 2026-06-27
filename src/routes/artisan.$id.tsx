@@ -1,18 +1,23 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Header } from "@/components/Header";
-import { useDB, store, trustBreakdown } from "@/lib/store";
+import { isUserActive, useDB, store, trustBreakdown } from "@/lib/store";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { VerificationBadge, TrustBadge, CheckPill } from "@/components/Badges";
 import { ChatModal } from "@/components/ChatModal";
 import { TrustScoreModal } from "@/components/TrustScoreModal";
-import { MapPin, Star, Briefcase, Phone, Mail, ArrowLeft, Clock, Plus, Minus, ShieldCheck, BadgeCheck, MessageCircle } from "lucide-react";
+import { MapPin, Star, Briefcase, Phone, Mail, ArrowLeft, Clock, Plus, Minus, ShieldCheck, BadgeCheck, MessageCircle, PencilLine } from "lucide-react";
 import { artisanAvatar, portfolioImages } from "@/lib/images";
 import { SmartImage } from "@/components/SmartImage";
 
 export const Route = createFileRoute("/artisan/$id")({
   component: ArtisanProfilePage,
 });
+
+function compactPhone(phone?: string) {
+  return phone?.replace(/[^+\d]/g, "") ?? "";
+}
 
 function ArtisanProfilePage() {
   const { id } = Route.useParams();
@@ -27,14 +32,46 @@ function ArtisanProfilePage() {
     </div>
   );
   const user = db.users.find((u) => u.id === a.user_id);
+  const accountActive = isUserActive(user);
   const cat = db.categories.find((c) => c.id === a.category_id);
   const reviews = db.reviews.filter((r) => r.artisan_id === a.id);
   const portfolio = portfolioImages(a.category_id);
   const factors = trustBreakdown(a);
+  const isOwnerArtisan = db.authSessions?.artisanUserId === a.user_id;
+  if (!accountActive && !isOwnerArtisan) return (
+    <div className="min-h-screen bg-background"><Header />
+      <main className="mx-auto max-w-3xl px-4 py-16">
+        <div className="rounded-3xl border border-border bg-card p-8 text-center shadow-[var(--shadow-elegant)]">
+          <h1 className="text-2xl font-bold">Artisan profile unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">This account has been suspended or banned by CityTrust admin review.</p>
+          <Button asChild className="mt-6"><Link to="/dashboard">Back to Find Artisans</Link></Button>
+        </div>
+      </main>
+    </div>
+  );
+  const residentUserId = db.authSessions?.residentUserId;
+  const isResidentSignedIn = Boolean(residentUserId);
+  const backTarget = isOwnerArtisan ? "/artisan" : isResidentSignedIn ? "/resident" : "/dashboard";
+  const backLabel = isOwnerArtisan ? "Back to artisan workspace" : isResidentSignedIn ? "Back to resident dashboard" : "Back to find artisans";
+
+  function ensureResidentAction() {
+    if (!isResidentSignedIn) {
+      toast.error("Please sign in as a resident to continue.");
+      navigate({ to: "/resident-account" });
+      return false;
+    }
+    return true;
+  }
+
+  function openResidentChat() {
+    if (!ensureResidentAction()) return;
+    setChatOpen(true);
+  }
 
   function requestService() {
+    if (!ensureResidentAction()) return;
     const req = store.createRequest({
-      user_id: db.currentUserId,
+      user_id: residentUserId!,
       category_id: a!.category_id,
       issue_description: `Direct request to ${a!.business_name}`,
       urgency: "medium",
@@ -49,15 +86,21 @@ function ArtisanProfilePage() {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
-        <Link to="/dashboard" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />Back to dashboard</Link>
+        <Link to={backTarget as any} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" />{backLabel}</Link>
 
-        {/* Header card */}
+        {isOwnerArtisan && (
+          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm text-primary">
+            <div className="font-bold">Public profile preview</div>
+            <p className="mt-1 text-primary/80">This is how residents discover your service profile. Resident-only actions like Request Service and Call Artisan are hidden while you are signed in as this artisan.</p>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
           <div className="h-32 w-full bg-[image:var(--gradient-hero)]" />
           <div className="px-6 pb-6">
             <div className="-mt-12 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
               <div className="flex items-end gap-4">
-                <SmartImage src={artisanAvatar(a.id)} alt={a.business_name} variant="avatar" className="h-24 w-24 rounded-2xl border-4 border-card object-cover shadow-md" />
+                <SmartImage src={a.profile_image || artisanAvatar(a.id)} alt={a.business_name} variant="avatar" className="h-24 w-24 rounded-2xl border-4 border-card object-cover shadow-md" />
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h1 className="text-2xl font-bold">{a.business_name}</h1>
@@ -68,10 +111,28 @@ function ArtisanProfilePage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="lg" variant="outline" onClick={() => setChatOpen(true)}>
-                  <MessageCircle className="mr-1 h-4 w-4" /> Message
-                </Button>
-                <Button size="lg" onClick={requestService}>Request Service</Button>
+                {isOwnerArtisan ? (
+                  <>
+                    <Button asChild size="lg" variant="outline">
+                      <Link to="/artisan"><ArrowLeft className="mr-1 h-4 w-4" /> Workspace</Link>
+                    </Button>
+                    <Button asChild size="lg">
+                      <Link to="/artisan"><PencilLine className="mr-1 h-4 w-4" /> Edit in settings</Link>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="lg" variant="outline" onClick={openResidentChat}>
+                      <MessageCircle className="mr-1 h-4 w-4" /> Message
+                    </Button>
+                    {user?.phone && (
+                      <Button asChild size="lg" variant="outline">
+                        <a href={`tel:${compactPhone(user.phone)}`}><Phone className="mr-1 h-4 w-4" /> Call</a>
+                      </Button>
+                    )}
+                    <Button size="lg" onClick={requestService}>{isResidentSignedIn ? "Request Service" : "Sign in to request"}</Button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -94,7 +155,6 @@ function ArtisanProfilePage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Verification Center */}
           <section className="rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)] lg:col-span-2">
             <div className="flex items-center gap-2">
               <BadgeCheck className="h-5 w-5 text-success" />
@@ -115,7 +175,6 @@ function ArtisanProfilePage() {
             </div>
           </section>
 
-          {/* Trust breakdown */}
           <section className="rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
             <h2 className="font-semibold">Trust score breakdown</h2>
             <p className="mt-1 text-sm text-muted-foreground">Why this artisan scored <span className="font-semibold text-foreground">{a.trust_score}</span>.</p>
@@ -133,7 +192,6 @@ function ArtisanProfilePage() {
           </section>
         </div>
 
-        {/* Portfolio */}
         <section>
           <h2 className="mb-3 text-lg font-semibold">Work portfolio</h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -145,7 +203,6 @@ function ArtisanProfilePage() {
           </div>
         </section>
 
-        {/* Reviews */}
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold">Reviews</h2>
@@ -173,7 +230,7 @@ function ArtisanProfilePage() {
         </section>
       </main>
 
-      <ChatModal artisan={a} open={chatOpen} onOpenChange={setChatOpen} />
+      {!isOwnerArtisan && <ChatModal artisan={a} open={chatOpen} onOpenChange={setChatOpen} />}
       <TrustScoreModal artisan={a} open={trustOpen} onOpenChange={setTrustOpen} />
     </div>
   );

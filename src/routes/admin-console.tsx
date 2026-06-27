@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Header } from "@/components/Header";
 import { useDB, store } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge, UrgencyBadge, VerificationBadge } from "@/components/Badges";
 import { AdminVerificationModal } from "@/components/AdminVerificationModal";
-import { Users, ShieldCheck, ClipboardList, MessageSquareWarning, CheckCircle2, Clock, BarChart3, AlertTriangle, LockKeyhole } from "lucide-react";
+import { Users, ShieldCheck, ClipboardList, MessageSquareWarning, CheckCircle2, Clock, BarChart3, AlertTriangle, LockKeyhole, Network, FileCode2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -15,18 +15,27 @@ export const Route = createFileRoute("/admin-console")({
 });
 
 function Admin() {
-  const [isAuthed, setIsAuthed] = useState(false);
   const [email, setEmail] = useState("staff@citytrust.org");
   const [password, setPassword] = useState("citytrust-access");
+  const [reviewingArtisanId, setReviewingArtisanId] = useState<string | null>(null);
   const [newCat, setNewCat] = useState("");
+  const [newCatDesc, setNewCatDesc] = useState("");
+  const [newCatMin, setNewCatMin] = useState("");
+  const [newCatMax, setNewCatMax] = useState("");
+  const [categoryDrafts, setCategoryDrafts] = useState<Record<string, { name: string; description: string; price_min: string; price_max: string; price_note: string }>>({});
   const db = useDB();
+  const isAuthed = Boolean(db.authSessions?.adminUserId);
 
   function signIn() {
     if (!email.trim() || !password.trim()) {
       toast.error("Enter staff email and password");
       return;
     }
-    setIsAuthed(true);
+    const user = store.signIn(email, "admin", password);
+    if (!user) {
+      toast.error("Invalid admin credentials");
+      return;
+    }
     toast.success("Welcome to CityTrust Admin Console");
   }
 
@@ -37,7 +46,7 @@ function Admin() {
     users: db.users.length,
     artisans: db.artisans.length,
     verified: db.artisans.filter((a) => a.verification_status === "verified").length,
-    pendingVer: db.artisans.filter((a) => a.verification_status === "pending").length,
+    pendingVer: db.artisans.filter((a) => a.verification_status !== "verified").length,
     openReq: db.requests.filter((r) => !["completed", "reviewed"].includes(r.status)).length,
     completed: db.requests.filter((r) => ["completed", "reviewed"].includes(r.status)).length,
     complaints: db.complaints.filter((c) => c.status !== "resolved").length,
@@ -75,9 +84,47 @@ function Admin() {
 
   function addCategory() {
     if (!newCat.trim()) return;
-    store.addCategory(newCat, "");
+    store.addCategory(newCat, newCatDesc);
+    const newest = store.get().categories.at(-1);
+    if (newest) {
+      store.updateCategory(newest.id, { price_min: newCatMin, price_max: newCatMax, price_note: "Admin suggested range for transparent negotiation." });
+    }
     setNewCat("");
-    toast.success("Category added");
+    setNewCatDesc("");
+    setNewCatMin("");
+    setNewCatMax("");
+    toast.success("Category and price guide added");
+  }
+
+  function categoryDraft(c: any) {
+    return categoryDrafts[c.id] ?? { name: c.name, description: c.description ?? "", price_min: c.price_min ?? "", price_max: c.price_max ?? "", price_note: c.price_note ?? "" };
+  }
+
+  function updateCategoryDraft(categoryId: string, field: "name" | "description" | "price_min" | "price_max" | "price_note", value: string) {
+    const current = db.categories.find((c) => c.id === categoryId);
+    if (!current) return;
+    const base = categoryDraft(current);
+    setCategoryDrafts((drafts) => ({ ...drafts, [categoryId]: { ...base, [field]: value } }));
+  }
+
+  function saveCategory(c: any) {
+    store.updateCategory(c.id, categoryDraft(c));
+    toast.success("Category updated");
+  }
+
+  function deleteCategory(c: any) {
+    if (!window.confirm(`Delete ${c.name}? This is only allowed when no artisan/request is using it.`)) return;
+    const ok = store.deleteCategory(c.id);
+    if (!ok) {
+      toast.error("This category is in use, so it cannot be deleted yet.");
+      return;
+    }
+    toast.success("Category deleted");
+  }
+
+  function setAccountStatus(userId: string, status: "active" | "suspended" | "banned") {
+    store.setUserStatus(userId, status);
+    toast.success(status === "active" ? "Account reactivated" : `Account ${status}`);
   }
 
   return (
@@ -89,10 +136,32 @@ function Admin() {
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl">CityTrust Admin Console</h1>
             <p className="text-sm text-muted-foreground">City operations, verification queue, complaints and analytics.</p>
           </div>
+          <Button type="button" variant="outline" onClick={() => { store.logout("admin"); toast("Admin signed out"); }}>Sign out</Button>
         </div>
         <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
           <strong>Restricted access.</strong> This console is designed for authorized CityTrust staff with role-based permissions for verification, complaints and city operations oversight.
         </div>
+
+        <section className="grid gap-3 md:grid-cols-2">
+          <Link to="/architecture" className="rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-card)] transition hover:border-primary/40 hover:bg-primary/5">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary"><Network className="h-5 w-5" /></div>
+              <div>
+                <div className="font-bold">Solution Architecture</div>
+                <p className="mt-1 text-sm text-muted-foreground">View system design, roles, data flow and smart-city trust architecture.</p>
+              </div>
+            </div>
+          </Link>
+          <Link to="/api-contracts" className="rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-card)] transition hover:border-primary/40 hover:bg-primary/5">
+            <div className="flex items-center gap-3">
+              <div className="grid h-11 w-11 place-items-center rounded-xl bg-primary/10 text-primary"><FileCode2 className="h-5 w-5" /></div>
+              <div>
+                <div className="font-bold">API & Data Contracts</div>
+                <p className="mt-1 text-sm text-muted-foreground">Keep technical details inside the restricted admin workspace.</p>
+              </div>
+            </div>
+          </Link>
+        </section>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric icon={Users} label="Total users" value={metrics.users} />
@@ -155,7 +224,7 @@ function Admin() {
           <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-[var(--shadow-elegant)]">
             <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                <tr><th className="px-4 py-3">Business</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Zone</th><th className="px-4 py-3">Trust</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr>
+                <tr><th className="px-4 py-3">Business</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Zone</th><th className="px-4 py-3">Files</th><th className="px-4 py-3">Trust</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr>
               </thead>
               <tbody>
                 {db.artisans.filter((a) => a.verification_status !== "verified").map((a) => {
@@ -165,17 +234,18 @@ function Admin() {
                       <td className="px-4 py-3 font-medium">{a.business_name}</td>
                       <td className="px-4 py-3">{c?.name}</td>
                       <td className="px-4 py-3">{a.location_zone}</td>
+                      <td className="px-4 py-3">{a.verification_documents?.length ?? 0}</td>
                       <td className="px-4 py-3">{a.trust_score}</td>
                       <td className="px-4 py-3"><VerificationBadge status={a.verification_status} /></td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <Button size="sm" onClick={() => { store.setVerification(a.id, "verified"); toast.success("Verified"); }}>Verify</Button>
-                        <Button size="sm" variant="outline" onClick={() => { store.setVerification(a.id, "rejected"); toast("Rejected"); }}>Reject</Button>
+                        <Button size="sm" onClick={() => setReviewingArtisanId(a.id)}>Review documents</Button>
+                        <Button size="sm" variant="outline" onClick={() => { store.setVerification(a.id, "rejected"); toast("Rejected"); }}>Quick reject</Button>
                       </td>
                     </tr>
                   );
                 })}
                 {db.artisans.filter((a) => a.verification_status !== "verified").length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">All caught up.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">All caught up.</td></tr>
                 )}
               </tbody>
             </table>
@@ -238,23 +308,79 @@ function Admin() {
           </div>
         </section>
 
+        {/* Account controls */}
+        <section className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-elegant)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Account control center</h3>
+              <p className="text-sm text-muted-foreground">Suspend or ban risky residents/artisans. Suspended and banned artisans disappear from resident discovery and blocked users cannot sign in.</p>
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <tr><th className="px-4 py-3">Account</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
+              </thead>
+              <tbody>
+                {db.users.filter((u) => u.role !== "admin").map((u) => (
+                  <tr key={u.id} className="border-t border-border">
+                    <td className="px-4 py-3"><div className="font-semibold">{u.full_name}</div><div className="text-xs text-muted-foreground">{u.email}</div></td>
+                    <td className="px-4 py-3 capitalize">{u.role}</td>
+                    <td className="px-4 py-3">{u.phone}</td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${u.status === "banned" ? "bg-destructive/10 text-destructive" : u.status === "suspended" ? "bg-warning/15 text-warning-foreground" : "bg-success/10 text-success"}`}>{u.status ?? "active"}</span></td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setAccountStatus(u.id, "active")}>Reactivate</Button>
+                        <Button size="sm" variant="outline" onClick={() => setAccountStatus(u.id, "suspended")}>Suspend</Button>
+                        <Button size="sm" variant="destructive" onClick={() => setAccountStatus(u.id, "banned")}>Ban</Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {db.users.filter((u) => u.role !== "admin").length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No resident or artisan accounts yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* Categories */}
-        <section className="grid gap-6 md:grid-cols-2">
+        <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-elegant)]">
-            <h3 className="text-lg font-semibold">Manage categories</h3>
-            <ul className="mt-3 space-y-1 text-sm">
-              {db.categories.map((c) => <li key={c.id} className="flex items-center justify-between rounded border border-border bg-background px-3 py-2"><span>{c.name}</span><span className="text-xs text-muted-foreground">{c.description}</span></li>)}
-            </ul>
-            <div className="mt-3 flex gap-2">
+            <h3 className="text-lg font-semibold">Manage categories & price guide</h3>
+            <p className="mt-1 text-sm text-muted-foreground">These suggested ranges appear inside resident/artisan chat so pricing starts from a transparent CityTrust guide.</p>
+            <div className="mt-4 space-y-3">
+              {db.categories.map((c) => {
+                const d = categoryDraft(c);
+                return (
+                  <div key={c.id} className="rounded-2xl border border-border bg-background p-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input value={d.name} onChange={(e) => updateCategoryDraft(c.id, "name", e.target.value)} placeholder="Category name" />
+                      <Input value={d.description} onChange={(e) => updateCategoryDraft(c.id, "description", e.target.value)} placeholder="Description" />
+                      <Input value={d.price_min} onChange={(e) => updateCategoryDraft(c.id, "price_min", e.target.value)} placeholder="Minimum e.g. ₦5k" />
+                      <Input value={d.price_max} onChange={(e) => updateCategoryDraft(c.id, "price_max", e.target.value)} placeholder="Maximum e.g. ₦25k" />
+                      <Input className="md:col-span-2" value={d.price_note} onChange={(e) => updateCategoryDraft(c.id, "price_note", e.target.value)} placeholder="Price note shown to users" />
+                    </div>
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <Button size="sm" variant="outline" onClick={() => deleteCategory(c)}>Delete</Button>
+                      <Button size="sm" onClick={() => saveCategory(c)}>Save changes</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 grid gap-2 rounded-2xl border border-dashed border-border bg-background p-4 md:grid-cols-[1fr_1fr_0.8fr_0.8fr_auto]">
               <Input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New category…" />
+              <Input value={newCatDesc} onChange={(e) => setNewCatDesc(e.target.value)} placeholder="Description…" />
+              <Input value={newCatMin} onChange={(e) => setNewCatMin(e.target.value)} placeholder="Min" />
+              <Input value={newCatMax} onChange={(e) => setNewCatMax(e.target.value)} placeholder="Max" />
               <Button onClick={addCategory}>Add</Button>
             </div>
           </div>
           <div className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-elegant)]">
             <h3 className="text-lg font-semibold">Recent admin activity</h3>
             <ul className="mt-3 space-y-2 text-sm">
-              {db.actions.length === 0 && <li className="text-muted-foreground">No recent actions yet — verify or reject an artisan to log activity.</li>}
-              {db.actions.slice(0, 8).map((a) => (
+              {db.actions.length === 0 && <li className="text-muted-foreground">No recent actions yet — verify, suspend, ban, reject, or update to log activity.</li>}
+              {db.actions.slice(0, 10).map((a) => (
                 <li key={a.id} className="rounded border border-border bg-background px-3 py-2">
                   <span className="font-medium capitalize">{a.action_type.replace(/_/g, " ")}</span>
                   <span className="text-xs text-muted-foreground"> · target {a.target_id} · {new Date(a.created_at).toLocaleTimeString()}</span>
@@ -264,6 +390,11 @@ function Admin() {
           </div>
         </section>
       </main>
+      <AdminVerificationModal
+        artisanId={reviewingArtisanId}
+        open={Boolean(reviewingArtisanId)}
+        onOpenChange={(open) => { if (!open) setReviewingArtisanId(null); }}
+      />
     </div>
   );
 }

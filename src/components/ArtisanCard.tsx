@@ -35,7 +35,7 @@ export function ArtisanCard({ artisan, category, score, reasons, onRequest }: { 
 
       <div className="flex-1 p-5">
         <div className="flex items-start gap-3">
-          <SmartImage src={artisanAvatar(artisan.id)} alt={artisan.business_name} variant="avatar" className="h-12 w-12 shrink-0 rounded-full border-2 border-card object-cover ring-2 ring-primary/20" />
+          <SmartImage src={artisan.profile_image || artisanAvatar(artisan.id)} alt={artisan.business_name} variant="avatar" className="h-12 w-12 shrink-0 rounded-full border-2 border-card object-cover ring-2 ring-primary/20" />
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-semibold leading-tight">{artisan.business_name}</h3>
             <div className="mt-0.5 text-xs text-muted-foreground">{category?.name ?? "Service"}</div>

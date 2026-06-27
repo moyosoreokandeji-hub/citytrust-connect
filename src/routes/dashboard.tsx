@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Header } from "@/components/Header";
 import { ArtisanCard } from "@/components/ArtisanCard";
 import { StatusBadge, UrgencyBadge } from "@/components/Badges";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { rankArtisans, store, useDB, ZONES_LIST, type Urgency } from "@/lib/store";
+import { isUserActive, rankArtisans, store, useDB, ZONES_LIST, type Urgency } from "@/lib/store";
 import { toast } from "sonner";
 import { ClipboardList, Search } from "lucide-react";
 
@@ -19,6 +19,19 @@ export const Route = createFileRoute("/dashboard")({
 
 function Dashboard() {
   const db = useDB();
+  useEffect(() => {
+    store.refresh();
+    store.ensureArtisanDirectory();
+    if (typeof window === "undefined") return;
+    const refreshDirectory = () => store.refresh();
+    window.addEventListener("focus", refreshDirectory);
+    window.addEventListener("citytrust-directory-sync", refreshDirectory);
+    return () => {
+      window.removeEventListener("focus", refreshDirectory);
+      window.removeEventListener("citytrust-directory-sync", refreshDirectory);
+    };
+  }, []);
+
   const [q, setQ] = useState(() => {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem("citytrust:landing-search") ?? "";
@@ -36,13 +49,19 @@ function Dashboard() {
   const [matchResult, setMatchResult] = useState<{ id: string; score: number; reasons: string[] } | null>(null);
 
   const filtered = useMemo(() => {
-    return db.artisans.filter((a) => {
-      if (cat !== "all" && a.category_id !== cat) return false;
-      if (zone !== "all" && a.location_zone !== zone) return false;
-      if (onlyVerified && a.verification_status !== "verified") return false;
-      if (q && !(`${a.business_name} ${a.bio}`.toLowerCase().includes(q.toLowerCase()))) return false;
-      return true;
-    });
+    return db.artisans
+      .filter((a) => {
+        const user = db.users.find((u) => u.id === a.user_id);
+        if (!isUserActive(user)) return false;
+        const category = db.categories.find((c) => c.id === a.category_id);
+        const searchable = `${a.business_name} ${a.bio} ${user?.full_name ?? ""} ${category?.name ?? ""}`.toLowerCase();
+        if (cat !== "all" && a.category_id !== cat) return false;
+        if (zone !== "all" && a.location_zone !== zone) return false;
+        if (onlyVerified && a.verification_status !== "verified") return false;
+        if (q && !searchable.includes(q.toLowerCase())) return false;
+        return true;
+      })
+      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
   }, [db, q, cat, zone, onlyVerified]);
 
   const myRequests = db.requests.filter((r) => r.user_id === db.currentUserId);
@@ -79,7 +98,7 @@ function Dashboard() {
       <main className="mx-auto max-w-7xl space-y-8 px-4 py-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Resident Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Search verified artisans, create a request, and track your jobs.</p>
+          <p className="text-sm text-muted-foreground">Search available and newly onboarded artisans, create a request, and track your jobs.</p>
         </div>
 
         {/* Filters */}
@@ -108,7 +127,12 @@ function Dashboard() {
 
         {/* Artisan grid */}
         <section>
-          <h2 className="mb-3 text-lg font-semibold">Available artisans <span className="text-sm font-normal text-muted-foreground">({filtered.length})</span></h2>
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Available artisans <span className="text-sm font-normal text-muted-foreground">({filtered.length})</span></h2>
+              <p className="text-xs text-muted-foreground">New artisan accounts appear here immediately, then gain higher trust visibility after admin verification.</p>
+            </div>
+          </div>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {filtered.map((a) => (
               <ArtisanCard key={a.id} artisan={a} category={db.categories.find((c) => c.id === a.category_id)} />

@@ -19,11 +19,12 @@ import { StatusBadge, UrgencyBadge, VerificationBadge, TrustBadge } from "@/comp
 import { ResidentVerificationCard, ResidentTrustBadge } from "@/components/ResidentVerificationCard";
 import { ArtisanCard } from "@/components/ArtisanCard";
 import { MessageCenterDialog } from "@/components/MessageCenterDialog";
+import { ChatModal } from "@/components/ChatModal";
 import {
-  rankArtisans, store, useDB, ZONES_LIST,
+  isUserActive, rankArtisans, store, useDB, ZONES_LIST,
   type Urgency, type ServiceRequest,
 } from "@/lib/store";
-import { categoryImage, RESIDENT_DASHBOARD_BG } from "@/lib/images";
+import { artisanAvatar, categoryImage, RESIDENT_DASHBOARD_BG } from "@/lib/images";
 import { SmartImage } from "@/components/SmartImage";
 
 export const Route = createFileRoute("/resident")({
@@ -74,7 +75,7 @@ function ResidentDashboardContent({ residentUserId }: { residentUserId: string }
   const activeRequests = myRequests.filter((r) => !["completed", "reviewed", "disputed"].includes(r.status));
   const completedRequests = myRequests.filter((r) => r.status === "completed" || r.status === "reviewed");
   const openComplaints = db.complaints.filter((c) => c.user_id === residentUserId && c.status !== "resolved");
-  const saved = db.artisans.filter((a) => db.savedArtisanIds.includes(a.id));
+  const saved = db.artisans.filter((a) => db.savedArtisanIds.includes(a.id) && isUserActive(db.users.find((u: any) => u.id === a.user_id)));
   const messageCount = db.messages.filter((m) => m.resident_id === residentUserId).length;
 
   const [rCat, setRCat] = useState(db.categories[0]?.id ?? "");
@@ -276,11 +277,61 @@ function ResidentComplaintsPage({ db, residentUserId, myRequests, setComplaintFo
 }
 
 function SavedArtisansPage({ db, saved, setMessagesOpen, setSection }: any) {
+  const [chatArtisan, setChatArtisan] = useState<any>(null);
+
   return (
-    <section className="rounded-[1.6rem] border border-border bg-card p-5 shadow-[var(--shadow-elegant)]">
-      <div className="mb-4 flex items-center justify-between"><div><h2 className="text-xl font-bold">Saved artisans</h2><p className="text-sm text-muted-foreground">Quickly message or request trusted providers again.</p></div><Button asChild variant="outline"><Link to="/dashboard">Browse more</Link></Button></div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{saved.map((a: any) => { const cat = db.categories.find((c: any) => c.id === a.category_id); return <div key={a.id} className="rounded-2xl border border-border bg-background p-4 shadow-[var(--shadow-card)]"><div className="flex gap-3"><SmartImage src={categoryImage(a.category_id)} alt={cat?.name ?? a.business_name} variant="avatar" className="h-14 w-14 rounded-full object-cover" /><div><div className="font-semibold">{a.business_name}</div><p className="text-sm text-muted-foreground">{cat?.name} · {a.location_zone}</p><div className="mt-2 flex flex-wrap gap-2"><VerificationBadge status={a.verification_status} /><TrustBadge score={a.trust_score} /></div></div></div><div className="mt-4 flex gap-2"><Button size="sm" variant="outline" onClick={() => setMessagesOpen(true)}><MessageSquare className="mr-1 h-4 w-4" /> Message</Button><Button size="sm" onClick={() => { setSection("book"); toast("Select service details to request again"); }}>Request again</Button></div></div>; })}{saved.length === 0 && <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground md:col-span-2 xl:col-span-3">No saved artisans yet.</div>}</div>
+    <>
+    <section className="rounded-[1.6rem] border border-border bg-card p-4 shadow-[var(--shadow-elegant)] sm:p-5">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold">Saved artisans</h2>
+          <p className="text-sm text-muted-foreground">Quickly message or request trusted providers again.</p>
+        </div>
+        <Button asChild variant="outline" className="w-full sm:w-auto"><Link to="/dashboard">Browse more</Link></Button>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+        {saved.map((a: any) => {
+          const cat = db.categories.find((c: any) => c.id === a.category_id);
+          const artisanUser = db.users.find((u: any) => u.id === a.user_id);
+          const artisanPhone = artisanUser?.phone?.replace(/\s/g, "");
+          return (
+            <div key={a.id} className="overflow-hidden rounded-2xl border border-border bg-background p-4 shadow-[var(--shadow-card)]">
+              <div className="flex min-w-0 gap-3">
+                <SmartImage
+                  src={a.profile_image || artisanAvatar(a.id)}
+                  alt={a.business_name}
+                  variant="avatar"
+                  className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-primary/10"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-2 font-semibold leading-tight">{a.business_name}</div>
+                  <p className="mt-1 text-sm text-muted-foreground">{cat?.name} · {a.location_zone}</p>
+                  <div className="mt-2 flex flex-wrap gap-2"><VerificationBadge status={a.verification_status} /><TrustBadge score={a.trust_score} /></div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <Button size="sm" variant="outline" onClick={() => setChatArtisan(a)} className="w-full justify-center">
+                  <MessageSquare className="mr-1 h-4 w-4" /> Message
+                </Button>
+                {artisanPhone && (
+                  <Button asChild size="sm" variant="outline" className="w-full justify-center">
+                    <a href={`tel:${artisanPhone}`}><Phone className="mr-1 h-4 w-4" /> Call</a>
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => { setSection("book"); toast("Select service details to request this artisan"); }} className="w-full justify-center">
+                  Request
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+        {saved.length === 0 && <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground lg:col-span-2 2xl:col-span-3">No saved artisans yet.</div>}
+      </div>
     </section>
+    {chatArtisan && <ChatModal artisan={chatArtisan} open={Boolean(chatArtisan)} onOpenChange={(open) => { if (!open) setChatArtisan(null); }} />}
+    </>
   );
 }
 
